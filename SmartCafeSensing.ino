@@ -1,7 +1,17 @@
 #include <dht.h>
 #include <SoftwareSerial.h>
-SoftwareSerial mySerial(4,5);
+#include <SPI.h>
+#include <Ethernet.h>
+
 dht DHT;//make an instance for reading temp and humidity
+
+byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
+IPAddress server(104, 196, 137, 191); // smart cafe's server IP address
+char cafeServer[] = "104. 196. 137. 191";
+
+IPAddress ip(192, 168, 0, 177);
+
+EthernetClient client;
 
 //Measure pins
 //Temp and humitity reading pins
@@ -20,8 +30,8 @@ int seat1_pin = A8;
 int seat2_pin = A9;
 int seat3_pin = A10;
 int seat4_pin = A11;
-int seat5_pin = A12;
-int seat6_pin = A13;
+int seat9_pin = A12;
+int seat10_pin = A13;
 
 //sensors reading synchronizer
 unsigned long time_previous[2],
@@ -42,14 +52,36 @@ double temperature,
        seat2_pressure,
        seat3_pressure,
        seat4_pressure,
-       seat5_pressure,
-       seat6_pressure;
+       seat9_pressure,
+       seat10_pressure;
 //----------------------------------
 
 
 void setup(){
   Serial.begin(9600);
-  mySerial.begin(9600);
+  while (!Serial) {
+    ; // wait for serial port to connect. Needed for native USB port only
+  }
+
+  // start the Ethernet connection :
+  if (Ethernet.begin(mac) == 0) {
+    Serial.println("Failed to configure Ethernet using DHCP");
+    // trying to configure using IP address instaed of DHCP:
+    Ethernet.begin(mac, ip);
+  }
+
+  /*
+  // give the Ethernet shield a second to initialize
+  delay(1000);
+  Serial.println("connecting...");
+
+  
+  // if you get a connection, report back via serial:
+  if (client.connect(server, 80)) {
+    Serial.println("connected");
+  }
+  */
+  
   time_previous[0] = millis(); 
   time_previous[1] = millis();
   //fine dust sensor
@@ -86,35 +118,91 @@ void loop()
    seat2_pressure = check_seat_pressure(seat2_pin);
    seat3_pressure = check_seat_pressure(seat3_pin);
    seat4_pressure = check_seat_pressure(seat4_pin);
-   seat5_pressure = check_seat_pressure(seat5_pin);
-   seat6_pressure = check_seat_pressure(seat6_pin);
+   seat9_pressure = check_seat_pressure(seat9_pin);
+   seat10_pressure = check_seat_pressure(seat10_pin);
 
    //printing out the readed values
    if(steps == 2){
-
       Serial.println("**************************************");
       Serial.println("Temperature = " + String(temperature) + "%");
-      mySerial.print("<");
-      mySerial.print(temperature);
-      mySerial.print(",");
       
       Serial.println("Humidity = " + String(humidity) + "%");
-      mySerial.print(humidity);
-      mySerial.print(",");
       
       Serial.println("Dust Density (ug/m^3): " + String(dust_density));
-      mySerial.print(dust_density);
-      //mySerial.print(",");
-      mySerial.print(">");
 
-      Serial.println("Luminance = " + String(luminance));
+      Serial.println("Luminance = " + String(luminance) + "%");
       
       Serial.println("Seat 1's pressure = " + String(seat1_pressure));
       Serial.println("Seat 2's pressure = " + String(seat2_pressure));
       Serial.println("Seat 3's pressure = " + String(seat3_pressure));
       Serial.println("Seat 4's pressure = " + String(seat4_pressure));
-      Serial.println("Seat 5's pressure = " + String(seat5_pressure));
-      Serial.println("Seat 6's pressure = " + String(seat6_pressure));
+      Serial.println("Seat 9's pressure = " + String(seat9_pressure));
+      Serial.println("Seat 10's pressure = " + String(seat10_pressure));
+
+        // create a URI for the request (luminance, humidity, temperature, fine dust)
+
+        if (client.connect(server, 80)) {
+          Serial.println("Connected to sensor insert page...");
+            client.print("GET /main/sensorInsert.php?");
+            client.print("light=");
+            client.print(luminance);
+            client.print("&");
+            client.print("humid=");
+            client.print(humidity);
+            client.print("&");
+            client.print("tempe=");
+            client.print(temperature);
+            client.print("&");
+            client.print("finedust=");
+            client.println(dust_density);
+                             
+            client.println(" HTTP/1.1");
+            client.println("Host: 104.196.137.191");
+            client.println("Connection: close");
+            client.println();
+            client.println();
+            Serial.println("Transfer from sensor insert page is terminated.");
+            client.stop();
+        }
+        else {
+          Serial.println("Connection to sensor insert page is failed.");
+        }
+
+        
+
+        if (client.connect(server, 80)) {
+          Serial.println("Connected to seat insert page...");
+            client.print("GET /main/seatInsert.php?");
+            client.print("c1=");
+            client.print(seat1_pressure);
+            client.print("&");
+            client.print("c2=");
+            client.print(seat2_pressure);
+            client.print("&");
+            client.print("c3=");
+            client.print(seat3_pressure);
+            client.print("&");
+            client.print("c4=");
+            client.print(seat4_pressure);
+            client.print("&");
+            client.print("c9=");
+            client.print(seat9_pressure);
+            client.print("&");
+            client.print("c10=");
+            client.println(seat10_pressure);
+
+            client.println(" HTTP/1.1");
+            client.println("Host: 109.196.137.191");
+            client.println("Connection: close");
+            client.println();
+            client.println();
+            Serial.println("Transer from seat insert page is terminated.");
+            client.stop();
+        }
+        else {
+          Serial.println("Connection to seat insert page is failed.");
+        }
+        
       steps = 0;
    }
 }//end void loop
@@ -154,7 +242,7 @@ double fine_dust_sensor_measurments(int measurePin, int ledPower){
   calcVoltage = voMeasured*(5.0/1024);
   dustDensity = 1000.0 * (0.17*calcVoltage-0.1);//dust ensity in ug/m^3
 
-  if ( dustDensity < 0)
+  if (dustDensity < 0)
   {
     dustDensity = 0.00;
   }
@@ -165,12 +253,20 @@ double fine_dust_sensor_measurments(int measurePin, int ledPower){
 
 double check_luminance() {
   double read_luminance = analogRead(A1);
-  return read_luminance;
+  double luminance_percent = map(read_luminance, 0, 1024, 0, 100);
+  return luminance_percent;
 }
 
 double check_seat_pressure(int seat_pin) {
+  double pressure = 0;
   double read_pressure = analogRead(seat_pin);
-  double mfsr_r18 = map(read_pressure, 0, 1024, 0, 255);
-  return read_pressure;
+  //double mfsr_r18 = map(read_pressure, 0, 1024, 0, 255);
+  if (read_pressure > 15) {
+    pressure = 1;
+  }
+  else {
+    pressure = 0;
+  }
+  return pressure;
 }
 
